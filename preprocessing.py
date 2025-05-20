@@ -27,9 +27,9 @@ def clean_sentences(sentences: list[str]) -> list[str]:
 
 
 def simple_sentiment_pipeline(s: list[str]) -> list[str]:
-    countvec = joblib.load("ML_models/CountVec.pkl")
-    tfidf_transformer = joblib.load("ML_models/tfidf_transformer.pkl")
-    svc = joblib.load("ML_models/SVC.pkl")
+    countvec = joblib.load("ML_models/tfidf_SVC/CountVec_1.pkl")
+    tfidf_transformer = joblib.load("ML_models/tfidf_SVC/tfidf_transformer_1.pkl")
+    svc = joblib.load("ML_models/tfidf_SVC/SVC_1.pkl")
 
     encoding = {1: "positive", 0: "negative"}
 
