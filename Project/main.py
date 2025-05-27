@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from .models import Base
 from .database import engine
-from .routers import chat
+from .routers import chat,auth,users
 
 
 @asynccontextmanager
@@ -33,3 +33,5 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 Base.metadata.create_all(bind=engine)
 app.include_router(chat.router)
+app.include_router(auth.router)
+app.include_router(users.router)
