@@ -10,12 +10,13 @@ from sqlalchemy.orm import Session
 from starlette import status
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from jose import jwt, JWTError
+import os
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-SECRET_KEY = "1fe5b597ebca0d921ee927e63c32c896d6740dccaeefda29b96687420535568c"
-ALGORITHM = "HS256"
+SECRET_KEY = os.getenv("SECRET_KEY")
+ALGORITHM = os.getenv("ALGORITHMN")
 
 
 bcrypt_context = CryptContext(schemes=["bcrypt"], deprecated="auto")

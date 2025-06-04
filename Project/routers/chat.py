@@ -71,11 +71,13 @@ async def chat_dialog(db: db_dependency, user: user_dependency, request: Sentenc
         )
 
         # check if session is still active
-        if still_active_session(last_session, datetime.timedelta(minutes=10)):  # dtime ändern auf 10 minuten
+        if still_active_session(last_session, datetime.timedelta(minutes=5)):
             active_session = last_session
         else:
             active_session = ChatSession(
-                session_id=last_session.session_id + 1, user_id=user.get("id"), last_change=datetime.datetime.now()
+                session_id=last_session.session_id + 1,
+                user_id=user.get("id"),
+                last_change=datetime.datetime.now(tz=datetime.timezone.utc),
             )
         db.add(active_session)
         db.commit()
@@ -132,7 +134,7 @@ async def chat_dialog(db: db_dependency, user: user_dependency, request: Sentenc
     return response.content
 
 
-def build_message_history(history: ChatMessageHistory, messages: ChatMessage) -> ChatMessageHistory:
+def build_message_history(history: ChatMessageHistory, messages: list[ChatMessage]) -> ChatMessageHistory:
     for m in messages:
         if m.role == "ai":
             history.add_ai_message(m.content)
@@ -141,23 +143,22 @@ def build_message_history(history: ChatMessageHistory, messages: ChatMessage) ->
     return history
 
 
-# def convert_to_langchain_messages(db_session_messages: list[ChatMessage]) -> list:
-#     lc_messages = []
-#     for m in db_session_messages:
-#         if m.role == "user":
-#             lc_messages.append(HumanMessage(content=m.content))
-#         elif m.role == "assistant":
-#             lc_messages.append(AIMessage(content=m.content))
-#         elif m.role == "system":
-#             lc_messages.append(SystemMessage(content=m.content))
-#         # Optional: weitere Rollen, z. B. function, tool, etc.
-
-#     return lc_messages
-
-
 def still_active_session(chat_session: ChatSession, timedelta: datetime.timedelta) -> bool:
-    last_activity = chat_session.last_change
-    return datetime.datetime.now() - last_activity < timedelta
+    last_activity: datetime.datetime = chat_session.last_change
+    # sqlite doesnt save datetimes with timezone info
+    # the code below attaches the tz info to the datettime after loading it from the db
+    last_activity = last_activity.replace(tzinfo=datetime.timezone.utc)
+    now = datetime.datetime.now(tz=datetime.timezone.utc)
+    return now - last_activity < timedelta
+
+
+@router.get("/chat/historys")
+async def get_chat_historys(user: user_dependency, db: db_dependency):
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication failed")
+    chat_sessions = db.query(ChatSession).filter(ChatSession.user_id == user.get("id")).all()
+    session_ids = [x.session_id for x in chat_sessions]
+    print(session_ids)
 
 
 @router.post("/sentiment/sentence", status_code=status.HTTP_201_CREATED)

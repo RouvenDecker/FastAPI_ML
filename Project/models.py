@@ -10,7 +10,7 @@ class ChatSession(Base):
     __tablename__ = "chat_sessions"
     session_id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    last_change = Column(DateTime)
+    last_change = Column(DateTime(timezone=True), default=lambda x: datetime.datetime.now(tz=datetime.timezone.utc))
     chat_messages = relationship("ChatMessage", back_populates="chat_session")
     user = relationship("User", back_populates="chat_sessions")
 
@@ -21,7 +21,7 @@ class ChatMessage(Base):
     session_id = Column(Integer, ForeignKey("chat_sessions.session_id"), primary_key=True, nullable=False)
     content = Column(String)
     role = Column(String)
-    date = Column(DateTime, default=datetime.datetime.now(datetime.timezone.utc))
+    date = Column(DateTime(timezone=True), default=lambda x: datetime.datetime.now(datetime.timezone.utc))
     chat_session = relationship("ChatSession", back_populates="chat_messages")
 
 
