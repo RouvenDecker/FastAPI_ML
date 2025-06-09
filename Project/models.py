@@ -1,9 +1,19 @@
 from .database import Base
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, JSON, DateTime
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, DateTime, JSON
 from sqlalchemy.orm import relationship
 import datetime
 
 # database tables
+
+
+class RAGSession(Base):
+    __tablename__ = "rag_sessions"
+    session_id = Column(Integer, primary_key=True, index=True)
+    created = Column(DateTime(timezone=True), default=lambda x: datetime.datetime.now(tz=datetime.timezone.utc))
+    chroma_path = Column(String)
+    files = Column(JSON)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user = relationship("User", back_populates="rag_sessions")
 
 
 class ChatSession(Base):
@@ -37,3 +47,4 @@ class User(Base):
     role = Column(String)
     phone_number = Column(String)
     chat_sessions = relationship("ChatSession", back_populates="user")
+    rag_sessions = relationship("RAGSession", back_populates="user")
