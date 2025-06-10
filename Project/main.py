@@ -1,14 +1,53 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 import os
 import gdown
 from pathlib import Path
+from typing import Annotated
+from sqlalchemy.orm import Session
 from contextlib import asynccontextmanager
+from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
-from .models import Base
-from .database import engine
+import datetime
+import shutil
+from sqlalchemy import Date, cast
+from .models import Base, RAGSession
+from .database import engine, SessionLocal
 from .routers import chat, auth, users, upload
 
+VECTORSTORES = Path.cwd() / "Vectorstores"
 
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+scheduler = BackgroundScheduler()
+
+
+# cyclic methods
+def delete_rag_session(time_offset: datetime.timedelta) -> None:
+    db_gen = get_db()
+    db: Session = next(db_gen)
+    try:
+        datetime_cutoff = datetime.datetime.now(tz=datetime.timezone.utc) - time_offset
+        rag_sessions = db.query(RAGSession).filter(RAGSession.created <= datetime_cutoff).all()
+        for rag_session in rag_sessions:
+            shutil.rmtree(VECTORSTORES / str(rag_session.session_id))
+            db.delete(rag_session)
+            db.commit()
+
+    finally:
+        try:
+            next(db_gen)
+        except StopIteration:
+            pass
+
+
+# lifespan manager
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_dotenv()
@@ -25,9 +64,14 @@ async def lifespan(app: FastAPI):
         gdown.download(id="1u0dhZ3mEEWYRXv9H8Y2_6DhaIWZonCmD", output=str(model_path / "tfidf_SVC" / "SVC_1.pkl"))
 
     if not os.path.exists(model_path / "tfidf_SVC" / "tfidf_transformer_1.pkl"):
-        gdown.download(id="19UQzUJrvl7togtQnsxk8wlpSeNHTpEPt", output=str(model_path / "tfidf_SVC" / "tfidf_transformer_1.pkl"))
+        gdown.download(
+            id="19UQzUJrvl7togtQnsxk8wlpSeNHTpEPt", output=str(model_path / "tfidf_SVC" / "tfidf_transformer_1.pkl")
+        )
 
+    scheduler.add_job(delete_rag_session, "interval", minutes=10, args=[datetime.timedelta(minutes=30)])
+    scheduler.start()
     yield
+    scheduler.shutdown()
 
 
 app = FastAPI(lifespan=lifespan)

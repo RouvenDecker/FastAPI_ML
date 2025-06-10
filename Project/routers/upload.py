@@ -103,7 +103,7 @@ async def file_upload(file: UploadFile, user: user_dependency, db: db_dependency
     if filetype not in ["pdf", "docx"]:
         raise HTTPException(status_code=422, detail="unprocessable datatype, allowed are [.pdf,.docx]")
 
-    if re.search(r" ", file.filename):  # type: ignore
+    if re.search(r" ", file.filename):
         raise HTTPException(status_code=400, detail="no whitespace in filename allowed")
 
     rag_session = db.query(RAGSession).filter(user.get("id") == RAGSession.user_id).first()  # type: ignore

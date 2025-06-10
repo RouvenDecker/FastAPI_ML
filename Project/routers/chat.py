@@ -2,7 +2,7 @@ from starlette import status
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException
 from ..database import SessionLocal
-from ..models import User, ChatMessage, ChatSession
+from ..models import User, ChatMessage, ChatSession, RAGSession
 from typing import Annotated
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
@@ -12,8 +12,12 @@ from .auth import get_current_user
 
 from langchain_openai import ChatOpenAI
 from langchain.chains.llm import LLMChain
+from langchain_core.runnables import RunnableParallel, RunnablePassthrough
+from langchain_chroma.vectorstores import Chroma
+from langchain_openai.embeddings import OpenAIEmbeddings
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
-from langchain_core.prompts import HumanMessagePromptTemplate, ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import HumanMessagePromptTemplate, ChatPromptTemplate, PromptTemplate
 from langchain_community.chat_message_histories import ChatMessageHistory
 from ..preprocessing import clean_sentences, simple_sentiment_pipeline  # type: ignore
 
@@ -39,6 +43,39 @@ def get_db():
 
 db_dependency = Annotated[Session, Depends(get_db)]
 user_dependency = Annotated[dict, Depends(get_current_user)]
+
+
+@router.post("/rag", status_code=status.HTTP_200_OK)
+async def rag_dialog(db: db_dependency, user: user_dependency, request: SentenceRequest):
+    # check is a ragsession exists
+    rag_session = db.query(RAGSession).filter(RAGSession.user_id == user.get("id")).first()
+    if not rag_session:
+        raise HTTPException(status_code=400, detail="no files for rag session uploaded, upload files")
+
+    # if exists load the corresponding chroma database
+    embeddings = OpenAIEmbeddings()
+    vectorstore = Chroma(persist_directory=rag_session.chroma_path, embedding_function=embeddings)
+    # create chain
+    retriever = vectorstore.as_retriever(search_type="mmr", search_kwargs={"k": 3, "lambda_mult": 0.7})
+
+    template = """
+    Answer the following question:
+    {question}
+
+    To answer the question, only use the following context:
+    {context}
+    """
+    prompt_template = PromptTemplate.from_template(template)
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)
+    chain = (
+        RunnableParallel({"context": retriever, "question": RunnablePassthrough()})
+        | prompt_template
+        | llm
+        | StrOutputParser()
+    )
+    # return ai output
+    response = chain.invoke(request.sentence)
+    return {"response": response}
 
 
 @router.post("/dialog", status_code=status.HTTP_200_OK)
