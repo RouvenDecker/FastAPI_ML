@@ -1,17 +1,16 @@
 from starlette import status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException
 from ..database import SessionLocal
 from ..models import User, ChatMessage, ChatSession, RAGSession
 from typing import Annotated
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, and_
 import datetime
 from .auth import get_current_user
 
 
 from langchain_openai import ChatOpenAI
-from langchain.chains.llm import LLMChain
 from langchain_core.runnables import RunnableParallel, RunnablePassthrough
 from langchain_chroma.vectorstores import Chroma
 from langchain_openai.embeddings import OpenAIEmbeddings
@@ -19,6 +18,8 @@ from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import HumanMessagePromptTemplate, ChatPromptTemplate, PromptTemplate
 from langchain_community.chat_message_histories import ChatMessageHistory
+from langchain_community.utilities import WikipediaAPIWrapper
+from langchain_community.tools import WikipediaQueryRun
 from ..preprocessing import clean_sentences, simple_sentiment_pipeline  # type: ignore
 
 
@@ -27,10 +28,22 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 class SentenceRequest(BaseModel):
     sentence: str
+    temperature: float = Field(gt=0, lt=1, default=0.5)
+    max_tokens: int = Field(gt=0, lt=500, default=150)
 
 
 class SentencesRequest(BaseModel):
     sentences: list[str]
+    temperature: float = Field(gt=0, lt=1, default=0.5)
+    max_tokens: int = Field(gt=0, lt=500, default=150)
+
+
+class WikiRequest(BaseModel):
+    sentence: str
+    temperature: float = Field(gt=0, lt=1, default=0.5)
+    max_tokens: int = Field(gt=0, lt=500, default=150)
+    max_character_output: int = Field(gt=0, default=1000)
+    top_k_results: int = 1
 
 
 def get_db():
@@ -189,13 +202,17 @@ def still_active_session(chat_session: ChatSession, timedelta: datetime.timedelt
     return now - last_activity < timedelta
 
 
-@router.get("/chat/historys")
-async def get_chat_historys(user: user_dependency, db: db_dependency):
+@router.get("/history", status_code=status.HTTP_200_OK)
+async def get_chat_history(user: user_dependency, db: db_dependency):
     if user is None:
         raise HTTPException(status_code=401, detail="Authentication failed")
-    chat_sessions = db.query(ChatSession).filter(ChatSession.user_id == user.get("id")).all()
-    session_ids = [x.session_id for x in chat_sessions]
-    print(session_ids)
+    chat_session = db.query(ChatSession).filter(ChatSession.user_id == user.get("id")).first()
+    chat_messages = (
+        db.query(ChatMessage)
+        .filter(and_(ChatMessage.chat_session == chat_session, chat_session.user_id == user.get("id")))
+        .all()
+    )
+    return [(f"{m.date} - {m.role} :", m.content) for m in chat_messages]
 
 
 @router.post("/sentiment/sentence", status_code=status.HTTP_201_CREATED)
@@ -210,7 +227,7 @@ async def predict_sentences(request: SentencesRequest):
     return simple_sentiment_pipeline(s)
 
 
-@router.post("/response/cynical", status_code=status.HTTP_200_OK)
+@router.post("/response/cynical", status_code=status.HTTP_200_OK, description="chat with a cynical Chatbot")
 async def respond_cynical(request: SentenceRequest):
     cynical_sys = "Du bist ein Assistent der Fragen auf zynische weise beantwortet"
     sys_msg = SystemMessage(cynical_sys)
@@ -218,6 +235,27 @@ async def respond_cynical(request: SentenceRequest):
     prompt_template = ChatPromptTemplate.from_messages([sys_msg, human_msg])
     chat_value = prompt_template.invoke({"question": request.sentence})
 
-    chat = ChatOpenAI(model_name="gpt-4o-mini", temperature=0.6, max_tokens=100)  # type: ignore
+    chat = ChatOpenAI(model_name="gpt-4o-mini", temperature=request.temperature, max_tokens=request.max_tokens)  # type: ignore
 
     return chat.invoke(chat_value).content
+
+
+@router.post(
+    "/wikipedia/search",
+    status_code=status.HTTP_200_OK,
+    description="ask a question about a topic and get a wikipedia response",
+)
+async def wiki_question(request: WikiRequest):
+    wikipedia_api = WikipediaAPIWrapper(  # type: ignore
+        doc_content_chars_max=request.max_character_output, top_k_results=request.top_k_results
+    )
+    wikipedia_tool = WikipediaQueryRun(api_wrapper=wikipedia_api)
+    template = """
+    wandle die folgende Nutzerfrage in eine Wikipedia suche.
+    Wenn es keine frage ist dann suche direkt nach dem Satz aber beantworte nicht die Frage.
+    {input}"""
+    prompt_template = PromptTemplate.from_template(template)
+    chat = ChatOpenAI(model_name="gpt-4o-mini", temperature=request.temperature, max_tokens=request.max_tokens)  # type: ignore
+    chain = prompt_template | chat | StrOutputParser() | wikipedia_tool
+    result = chain.invoke({"input": request.sentence})
+    return result
