@@ -1,4 +1,3 @@
-from starlette import status
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from ..database import SessionLocal
@@ -8,9 +7,7 @@ from sqlalchemy.orm import Session
 import datetime
 from .auth import get_current_user
 from pathlib import Path
-import shutil
 import os
-import re
 
 from langchain_openai.embeddings import OpenAIEmbeddings
 from langchain_chroma import Chroma
@@ -58,7 +55,7 @@ def delete_file(filename: str | Path) -> None:
     os.remove(filename)
 
 
-def get_documents(file: UploadFile, chunksize: int = 500, chunk_overlap: int = 50) -> list[Document]:
+def get_documents_from_file(file: UploadFile, chunksize: int = 500, chunk_overlap: int = 50) -> list[Document]:
     """generate a Documents from  Uploadfile object
 
     Args:
@@ -103,13 +100,13 @@ async def file_upload(file: UploadFile, user: user_dependency, db: db_dependency
     if filetype not in ["pdf", "docx"]:
         raise HTTPException(status_code=422, detail="unprocessable datatype, allowed are [.pdf,.docx]")
 
-    if re.search(r" ", file.filename):
+    if r" " in file.filename:
         raise HTTPException(status_code=400, detail="no whitespace in filename allowed")
 
     rag_session = db.query(RAGSession).filter(user.get("id") == RAGSession.user_id).first()  # type: ignore
     vectorstore: Chroma = None
 
-    documents = get_documents(file, chunksize=500, chunk_overlap=50)
+    documents = get_documents_from_file(file, chunksize=500, chunk_overlap=50)
 
     if rag_session:  # session does exist
         if file.filename in rag_session.files:

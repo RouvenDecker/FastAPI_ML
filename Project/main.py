@@ -1,18 +1,16 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI
 import os
 import gdown
 from pathlib import Path
-from typing import Annotated
 from sqlalchemy.orm import Session
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
 import datetime
 import shutil
-from sqlalchemy import Date, cast
 from .models import Base, RAGSession
 from .database import engine, SessionLocal
-from .routers import chat, auth, users, upload
+from .routers import chat, auth, users, upload, agents
 
 VECTORSTORES = Path.cwd() / "Vectorstores"
 
@@ -80,3 +78,4 @@ app.include_router(chat.router)
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(upload.router)
+app.include_router(agents.router)

@@ -6,6 +6,16 @@ import datetime
 # database tables
 
 
+class WebSession(Base):
+    __tablename__ = "web_sessions"
+    session_id = Column(Integer, primary_key=True, index=True)
+    created = Column(DateTime(timezone=True), default=lambda x: datetime.datetime.now(tz=datetime.timezone.utc))
+    chroma_path = Column(String)
+    websites = Column(JSON)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user = relationship("User", back_populates="web_sessions")
+
+
 class RAGSession(Base):
     __tablename__ = "rag_sessions"
     session_id = Column(Integer, primary_key=True, index=True)
@@ -48,3 +58,4 @@ class User(Base):
     phone_number = Column(String)
     chat_sessions = relationship("ChatSession", back_populates="user")
     rag_sessions = relationship("RAGSession", back_populates="user")
+    web_sessions = relationship("WebSession", back_populates="user")

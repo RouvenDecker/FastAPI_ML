@@ -1,49 +1,29 @@
 from starlette import status
-from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException
-from ..database import SessionLocal
-from ..models import User, ChatMessage, ChatSession, RAGSession
-from typing import Annotated
+
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, and_
+from sqlalchemy import and_
 import datetime
-from .auth import get_current_user
 
-
+from Project.database import SessionLocal
+from Project.models import User, ChatMessage, ChatSession, RAGSession
+from Project.schemas import SentenceRequest, SentencesRequest, WikiRequest
+from typing import Annotated
 from langchain_openai import ChatOpenAI
 from langchain_core.runnables import RunnableParallel, RunnablePassthrough
 from langchain_chroma.vectorstores import Chroma
 from langchain_openai.embeddings import OpenAIEmbeddings
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import HumanMessagePromptTemplate, ChatPromptTemplate, PromptTemplate
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_community.utilities import WikipediaAPIWrapper
 from langchain_community.tools import WikipediaQueryRun
 from ..preprocessing import clean_sentences, simple_sentiment_pipeline  # type: ignore
+from .auth import get_current_user
 
 
 router = APIRouter(prefix="/chat", tags=["chat"])
-
-
-class SentenceRequest(BaseModel):
-    sentence: str
-    temperature: float = Field(gt=0, lt=1, default=0.5)
-    max_tokens: int = Field(gt=0, lt=500, default=150)
-
-
-class SentencesRequest(BaseModel):
-    sentences: list[str]
-    temperature: float = Field(gt=0, lt=1, default=0.5)
-    max_tokens: int = Field(gt=0, lt=500, default=150)
-
-
-class WikiRequest(BaseModel):
-    sentence: str
-    temperature: float = Field(gt=0, lt=1, default=0.5)
-    max_tokens: int = Field(gt=0, lt=500, default=150)
-    max_character_output: int = Field(gt=0, default=1000)
-    top_k_results: int = 1
 
 
 def get_db():
@@ -60,6 +40,8 @@ user_dependency = Annotated[dict, Depends(get_current_user)]
 
 @router.post("/rag", status_code=status.HTTP_200_OK)
 async def rag_dialog(db: db_dependency, user: user_dependency, request: SentenceRequest):
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication failed")
     # check is a ragsession exists
     rag_session = db.query(RAGSession).filter(RAGSession.user_id == user.get("id")).first()
     if not rag_session:
@@ -67,7 +49,7 @@ async def rag_dialog(db: db_dependency, user: user_dependency, request: Sentence
 
     # if exists load the corresponding chroma database
     embeddings = OpenAIEmbeddings()
-    vectorstore = Chroma(persist_directory=rag_session.chroma_path, embedding_function=embeddings)
+    vectorstore = Chroma(persist_directory=rag_session.chroma_path, embedding_function=embeddings)  # type: ignore
     # create chain
     retriever = vectorstore.as_retriever(search_type="mmr", search_kwargs={"k": 3, "lambda_mult": 0.7})
 
@@ -149,7 +131,7 @@ async def chat_dialog(db: db_dependency, user: user_dependency, request: Sentenc
 
     # building the prompts
     chat = ChatOpenAI(model="gpt-4", temperature=0.7, max_completion_tokens=100)
-    system_m = SystemMessage(db_messages[0].content)
+    system_m = SystemMessage(db_messages[0].content)  # type: ignore
 
     history = ChatMessageHistory()
     build_message_history(history, db_messages)
@@ -187,14 +169,14 @@ async def chat_dialog(db: db_dependency, user: user_dependency, request: Sentenc
 def build_message_history(history: ChatMessageHistory, messages: list[ChatMessage]) -> ChatMessageHistory:
     for m in messages:
         if m.role == "ai":
-            history.add_ai_message(m.content)
+            history.add_ai_message(m.content)  # type: ignore
         if m.role == "user":
-            history.add_user_message(m.content)
+            history.add_user_message(m.content)  # type: ignore
     return history
 
 
 def still_active_session(chat_session: ChatSession, timedelta: datetime.timedelta) -> bool:
-    last_activity: datetime.datetime = chat_session.last_change
+    last_activity: datetime.datetime = chat_session.last_change  # type: ignore
     # sqlite doesnt save datetimes with timezone info
     # the code below attaches the tz info to the datettime after loading it from the db
     last_activity = last_activity.replace(tzinfo=datetime.timezone.utc)
@@ -209,7 +191,7 @@ async def get_chat_history(user: user_dependency, db: db_dependency):
     chat_session = db.query(ChatSession).filter(ChatSession.user_id == user.get("id")).first()
     chat_messages = (
         db.query(ChatMessage)
-        .filter(and_(ChatMessage.chat_session == chat_session, chat_session.user_id == user.get("id")))
+        .filter(and_(ChatMessage.chat_session == chat_session, chat_session.user_id == user.get("id")))  # type: ignore
         .all()
     )
     return [(f"{m.date} - {m.role} :", m.content) for m in chat_messages]
